@@ -24,6 +24,7 @@ import {
   EmailNotificationRecord,
   UnauthorizedLoginAlertData,
 } from './types';
+import { isStaticHosting, ClientStore } from './clientStore';
 
 const API_BASE = '/api';
 
@@ -40,31 +41,51 @@ function getAuthHeader(): Record<string, string> {
 export async function fetchCurrentUser(): Promise<User | null> {
   const token = localStorage.getItem('tracevault_token');
   if (!token) return null;
+  if (isStaticHosting()) {
+    return ClientStore.getCurrentUser();
+  }
   try {
     const res = await fetch(`${API_BASE}/auth/me`, {
       headers: getAuthHeader(),
     });
-    if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) {
+      return ClientStore.getCurrentUser();
+    }
     const data = await res.json();
     return data.user;
   } catch (err) {
-    console.error('fetchCurrentUser failed', err);
-    return null;
+    console.error('fetchCurrentUser failed, checking client store', err);
+    return ClientStore.getCurrentUser();
   }
 }
 
 export async function loginApi(email: string, password: string): Promise<{ token: string; user: User }> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Login failed');
+  if (isStaticHosting()) {
+    return ClientStore.login(email);
   }
-  localStorage.setItem('tracevault_token', data.token);
-  return data;
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return ClientStore.login(email);
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Login failed');
+    }
+    localStorage.setItem('tracevault_token', data.token);
+    return data;
+  } catch (err: any) {
+    if (err.message?.includes('JSON') || err.name === 'TypeError') {
+      return ClientStore.login(email);
+    }
+    throw err;
+  }
 }
 
 export async function registerApi(
@@ -73,20 +94,35 @@ export async function registerApi(
   password: string,
   confirmPassword: string
 ): Promise<{ token: string; user: User }> {
-  const res = await fetch(`${API_BASE}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, email, password, confirmPassword }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Registration failed');
+  if (isStaticHosting()) {
+    return ClientStore.register(name, email);
   }
-  localStorage.setItem('tracevault_token', data.token);
-  return data;
+  try {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password, confirmPassword }),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return ClientStore.register(name, email);
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Registration failed');
+    }
+    localStorage.setItem('tracevault_token', data.token);
+    return data;
+  } catch (err: any) {
+    if (err.message?.includes('JSON') || err.name === 'TypeError') {
+      return ClientStore.register(name, email);
+    }
+    throw err;
+  }
 }
 
 export async function logoutApi(): Promise<void> {
+  ClientStore.logout();
   try {
     await fetch(`${API_BASE}/auth/logout`, {
       method: 'POST',
@@ -97,36 +133,62 @@ export async function logoutApi(): Promise<void> {
 }
 
 export async function getDocuments(): Promise<DocumentItem[]> {
-  const res = await fetch(`${API_BASE}/documents`, {
-    headers: getAuthHeader(),
-  });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to fetch documents');
+  if (isStaticHosting()) {
+    return ClientStore.getDocuments();
   }
-  const data = await res.json();
-  return data.documents;
+  try {
+    const res = await fetch(`${API_BASE}/documents`, {
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) {
+      return ClientStore.getDocuments();
+    }
+    const data = await res.json();
+    return data.documents;
+  } catch (err) {
+    return ClientStore.getDocuments();
+  }
 }
 
 export async function uploadDocument(formData: FormData): Promise<DocumentItem> {
-  const res = await fetch(`${API_BASE}/documents/upload`, {
-    method: 'POST',
-    headers: getAuthHeader(),
-    body: formData,
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    if (res.status === 409 && data.isDuplicate) {
-      const err: any = new Error(
-        data.error || 'Duplicate Document Detected! This file already exists in your vault. Do you want to upload it anyway?'
-      );
-      err.isDuplicate = true;
-      err.existingDocument = data.existingDocument;
-      throw err;
-    }
-    throw new Error(data.error || 'Upload failed');
+  const file = formData.get('file') as File;
+  const category = (formData.get('category') as string) || 'General';
+  const description = (formData.get('description') as string) || '';
+
+  if (isStaticHosting()) {
+    return await ClientStore.addDocument(file, category, description);
   }
-  return data.document;
+  try {
+    const res = await fetch(`${API_BASE}/documents/upload`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData,
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return await ClientStore.addDocument(file, category, description);
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 409 && data.isDuplicate) {
+        const err: any = new Error(
+          data.error || 'Duplicate Document Detected! This file already exists in your vault. Do you want to upload it anyway?'
+        );
+        err.isDuplicate = true;
+        err.existingDocument = data.existingDocument;
+        throw err;
+      }
+      throw new Error(data.error || 'Upload failed');
+    }
+    return data.document;
+  } catch (err: any) {
+    if (err.isDuplicate) throw err;
+    if (err.message?.includes('JSON') || err.name === 'TypeError') {
+      return await ClientStore.addDocument(file, category, description);
+    }
+    throw err;
+  }
 }
 
 export async function checkDuplicateDocument(file: File): Promise<{
@@ -140,64 +202,121 @@ export async function checkDuplicateDocument(file: File): Promise<{
     sha256Baseline: string;
   };
 }> {
-  const formData = new FormData();
-  formData.append('file', file);
-  const res = await fetch(`${API_BASE}/documents/check-duplicate`, {
-    method: 'POST',
-    headers: getAuthHeader(),
-    body: formData,
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Duplicate check failed');
+  if (isStaticHosting()) {
+    return await ClientStore.checkDuplicate(file);
   }
-  return data;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/documents/check-duplicate`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData,
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return await ClientStore.checkDuplicate(file);
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      return await ClientStore.checkDuplicate(file);
+    }
+    return data;
+  } catch (err) {
+    return await ClientStore.checkDuplicate(file);
+  }
 }
 
 export async function verifyDocument(id: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/documents/${id}/verify`, {
-    method: 'POST',
-    headers: getAuthHeader(),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.message || data.error || 'Verification failed');
+  if (isStaticHosting()) {
+    return ClientStore.verifyDocument(id);
   }
-  return data;
+  try {
+    const res = await fetch(`${API_BASE}/documents/${id}/verify`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return ClientStore.verifyDocument(id);
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Verification failed');
+    }
+    return data;
+  } catch (err: any) {
+    if (err.message?.includes('JSON') || err.name === 'TypeError') {
+      return ClientStore.verifyDocument(id);
+    }
+    throw err;
+  }
 }
 
 export async function verifyAllDocuments(): Promise<any> {
-  const res = await fetch(`${API_BASE}/documents/verify-all`, {
-    method: 'POST',
-    headers: getAuthHeader(),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Bulk verification failed');
+  if (isStaticHosting()) {
+    return ClientStore.verifyAllDocuments();
   }
-  return data;
+  try {
+    const res = await fetch(`${API_BASE}/documents/verify-all`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return ClientStore.verifyAllDocuments();
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Bulk verification failed');
+    }
+    return data;
+  } catch (err: any) {
+    if (err.message?.includes('JSON') || err.name === 'TypeError') {
+      return ClientStore.verifyAllDocuments();
+    }
+    throw err;
+  }
 }
 
 export async function toggleMonitoring(id: string): Promise<DocumentItem> {
-  const res = await fetch(`${API_BASE}/documents/${id}/toggle-monitoring`, {
-    method: 'POST',
-    headers: getAuthHeader(),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Failed to toggle monitoring');
+  if (isStaticHosting()) {
+    return ClientStore.toggleMonitoring(id);
   }
-  return data.document;
+  try {
+    const res = await fetch(`${API_BASE}/documents/${id}/toggle-monitoring`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return ClientStore.toggleMonitoring(id);
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to toggle monitoring');
+    }
+    return data.document;
+  } catch (err) {
+    return ClientStore.toggleMonitoring(id);
+  }
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/documents/${id}`, {
-    method: 'DELETE',
-    headers: getAuthHeader(),
-  });
-  if (!res.ok) {
-    const data = await res.json();
-    throw new Error(data.error || 'Failed to delete document');
+  if (isStaticHosting()) {
+    ClientStore.deleteDocument(id);
+    return;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/documents/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader(),
+    });
+    if (!res.ok) {
+      ClientStore.deleteDocument(id);
+    }
+  } catch (err) {
+    ClientStore.deleteDocument(id);
   }
 }
 
@@ -251,35 +370,57 @@ export function getDocumentViewUrl(id: string): string {
 }
 
 export async function getAlerts(): Promise<SecurityAlert[]> {
-  const res = await fetch(`${API_BASE}/alerts`, {
-    headers: getAuthHeader(),
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.alerts;
+  if (isStaticHosting()) {
+    return ClientStore.getAlerts();
+  }
+  try {
+    const res = await fetch(`${API_BASE}/alerts`, {
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) return ClientStore.getAlerts();
+    const data = await res.json();
+    return data.alerts;
+  } catch (err) {
+    return ClientStore.getAlerts();
+  }
 }
 
 export async function markAlertRead(id: string): Promise<void> {
-  await fetch(`${API_BASE}/alerts/${id}/read`, {
-    method: 'POST',
-    headers: getAuthHeader(),
-  });
+  ClientStore.markAlertRead(id);
+  try {
+    await fetch(`${API_BASE}/alerts/${id}/read`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+    });
+  } catch (_) {}
 }
 
 export async function resolveAlert(id: string): Promise<void> {
-  await fetch(`${API_BASE}/alerts/${id}/resolve`, {
-    method: 'POST',
-    headers: getAuthHeader(),
-  });
+  ClientStore.resolveAlert(id);
+  try {
+    await fetch(`${API_BASE}/alerts/${id}/resolve`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+    });
+  } catch (_) {}
 }
 
 export async function getIncidents(): Promise<IntegrityIncident[]> {
-  const res = await fetch(`${API_BASE}/integrity/incidents`, {
-    headers: getAuthHeader(),
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.incidents;
+  if (isStaticHosting()) {
+    return ClientStore.getIncidents();
+  }
+  try {
+    const res = await fetch(`${API_BASE}/integrity/incidents`, {
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) return ClientStore.getIncidents();
+    const data = await res.json();
+    return data.incidents;
+  } catch (err) {
+    return ClientStore.getIncidents();
+  }
 }
 
 export async function approveBaseline(incidentId: string, notes?: string): Promise<any> {
@@ -296,28 +437,47 @@ export async function approveBaseline(incidentId: string, notes?: string): Promi
 }
 
 export async function getVerificationHistory(): Promise<VerificationLog[]> {
-  const res = await fetch(`${API_BASE}/integrity/history`, {
-    headers: getAuthHeader(),
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.history;
+  if (isStaticHosting()) {
+    return ClientStore.getVerificationHistory();
+  }
+  try {
+    const res = await fetch(`${API_BASE}/integrity/history`, {
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) return ClientStore.getVerificationHistory();
+    const data = await res.json();
+    return data.history;
+  } catch (err) {
+    return ClientStore.getVerificationHistory();
+  }
 }
 
 export async function getChecklists(): Promise<ChecklistItem[]> {
-  const res = await fetch(`${API_BASE}/checklists`, {
-    headers: getAuthHeader(),
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.items;
+  if (isStaticHosting()) {
+    return ClientStore.getChecklists();
+  }
+  try {
+    const res = await fetch(`${API_BASE}/checklists`, {
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) return ClientStore.getChecklists();
+    const data = await res.json();
+    return data.items;
+  } catch (err) {
+    return ClientStore.getChecklists();
+  }
 }
 
 export async function toggleChecklistItem(id: string): Promise<void> {
-  await fetch(`${API_BASE}/checklists/${id}/toggle`, {
-    method: 'POST',
-    headers: getAuthHeader(),
-  });
+  ClientStore.toggleChecklist(id);
+  try {
+    await fetch(`${API_BASE}/checklists/${id}/toggle`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+    });
+  } catch (_) {}
 }
 
 export async function linkChecklistDoc(id: string, documentId: string): Promise<void> {
@@ -329,45 +489,89 @@ export async function linkChecklistDoc(id: string, documentId: string): Promise<
 }
 
 export async function getAuditLogs(): Promise<AuditLog[]> {
-  const res = await fetch(`${API_BASE}/audit-logs`, {
-    headers: getAuthHeader(),
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.logs;
+  if (isStaticHosting()) {
+    return ClientStore.getAuditLogs();
+  }
+  try {
+    const res = await fetch(`${API_BASE}/audit-logs`, {
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) return ClientStore.getAuditLogs();
+    const data = await res.json();
+    return data.logs;
+  } catch (err) {
+    return ClientStore.getAuditLogs();
+  }
 }
 
 export async function getSystemHealth(): Promise<SystemHealth> {
-  const res = await fetch(`${API_BASE}/system/health`);
-  return res.json();
+  if (isStaticHosting()) {
+    return ClientStore.getSystemHealth();
+  }
+  try {
+    const res = await fetch(`${API_BASE}/system/health`);
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) return ClientStore.getSystemHealth();
+    return await res.json();
+  } catch (err) {
+    return ClientStore.getSystemHealth();
+  }
 }
 
 export async function triggerScheduledJob(): Promise<any> {
-  const res = await fetch(`${API_BASE}/system/trigger-scheduler`, { method: 'POST' });
-  return res.json();
+  if (isStaticHosting()) {
+    return ClientStore.verifyAllDocuments();
+  }
+  try {
+    const res = await fetch(`${API_BASE}/system/trigger-scheduler`, { method: 'POST' });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) return ClientStore.verifyAllDocuments();
+    return await res.json();
+  } catch (err) {
+    return ClientStore.verifyAllDocuments();
+  }
 }
 
 // Test lab operations
 export async function testLabTamper(documentId: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/system/test-lab/tamper`, {
-    method: 'POST',
-    headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ documentId }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Tamper simulation failed');
-  return data;
+  if (isStaticHosting()) {
+    return ClientStore.tamperDocument(documentId);
+  }
+  try {
+    const res = await fetch(`${API_BASE}/system/test-lab/tamper`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId }),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return ClientStore.tamperDocument(documentId);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Tamper simulation failed');
+    return data;
+  } catch (err: any) {
+    return ClientStore.tamperDocument(documentId);
+  }
 }
 
 export async function testLabRestore(documentId: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/system/test-lab/restore`, {
-    method: 'POST',
-    headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ documentId }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Restore failed');
-  return data;
+  if (isStaticHosting()) {
+    return ClientStore.restoreDocument(documentId);
+  }
+  try {
+    const res = await fetch(`${API_BASE}/system/test-lab/restore`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId }),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return ClientStore.restoreDocument(documentId);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Restore failed');
+    return data;
+  } catch (err: any) {
+    return ClientStore.restoreDocument(documentId);
+  }
 }
 
 export async function testLabToggleStorage(): Promise<any> {
@@ -831,12 +1035,20 @@ export async function getLoginActivityLogs(): Promise<{
   };
   lockedAccounts: { email: string; lockoutRemainingSeconds: number; attempts: number }[];
 }> {
-  const res = await fetch(`${API_BASE}/security/login-activity`, {
-    headers: getAuthHeader(),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to load login activity logs');
-  return data;
+  if (isStaticHosting()) {
+    return ClientStore.getLoginActivityLogs();
+  }
+  try {
+    const res = await fetch(`${API_BASE}/security/login-activity`, {
+      headers: getAuthHeader(),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) return ClientStore.getLoginActivityLogs();
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    return ClientStore.getLoginActivityLogs();
+  }
 }
 
 export async function getUnauthorizedLoginAlerts(): Promise<{ alerts: UnauthorizedLoginAlertData[] }> {
@@ -888,17 +1100,26 @@ export async function simulateUnauthorizedAttack(targetEmail?: string): Promise<
   alert: UnauthorizedLoginAlertData;
   emailDispatched: boolean;
 }> {
-  const res = await fetch(`${API_BASE}/security/simulate-unauthorized-attack`, {
-    method: 'POST',
-    headers: {
-      ...getAuthHeader(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ targetEmail }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to simulate attack');
-  return data;
+  if (isStaticHosting()) {
+    return ClientStore.simulateAttack(targetEmail);
+  }
+  try {
+    const res = await fetch(`${API_BASE}/security/simulate-unauthorized-attack`, {
+      method: 'POST',
+      headers: {
+        ...getAuthHeader(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ targetEmail }),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return ClientStore.simulateAttack(targetEmail);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to simulate attack');
+    return data;
+  } catch (err: any) {
+    return ClientStore.simulateAttack(targetEmail);
+  }
 }
 
 
