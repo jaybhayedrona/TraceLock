@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs';
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Directories
 const STORAGE_DIR = path.resolve(process.cwd(), '.storage/documents');
@@ -5155,5 +5155,5 @@ async function startServer() {
 }
 
 startServer().catch(err => {
-  console.error('[TraceVault Server] Failed to initialize:', err);
+  console.error('[TraceLock Server] Failed to initialize:', err);
 });
