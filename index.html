@@ -12,9 +12,32 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      // Fallback redirect if uncompiled source index.html is directly served on GitHub Pages
+      window.addEventListener('DOMContentLoaded', function () {
+        if (window.location.hostname.endsWith('github.io') && !window.__TRACE_LOCK_BUNDLED__) {
+          setTimeout(function () {
+            if (!window.__TRACE_LOCK_BUNDLED__) {
+              var pathname = window.location.pathname;
+              if (!pathname.includes('/docs/')) {
+                var cleanPath = pathname.replace(/\/+$/, '');
+                window.location.replace(window.location.origin + cleanPath + '/docs/');
+              }
+            }
+          }, 600);
+        }
+      });
+    </script>
   </head>
   <body class="bg-[#F5F7FB] text-[#172033] antialiased selection:bg-[#4776D0]/20 selection:text-[#243B6B]">
-    <div id="root"></div>
+    <div id="root">
+      <noscript>
+        <div style="padding: 2rem; font-family: sans-serif; text-align: center;">
+          <h2>TraceLock Security Platform</h2>
+          <p>Please enable JavaScript to access your monitored vault.</p>
+        </div>
+      </noscript>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
