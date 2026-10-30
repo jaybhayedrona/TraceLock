@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Enterprise Deep Indigo Color System: */
+  /* Primary Deep Indigo: #243B6B */
+  --color-primary: #243B6B;
+  --color-primary-dark: #1A2C52;
+  --color-primary-deep: #121F3A;
+  --color-primary-light: #2F4C87;
+  --color-primary-hover: #1D315B;
+
+  /* Accent Professional Blue: #4776D0 */
+  --color-accent: #4776D0;
+  --color-accent-dark: #3259A8;
+  --color-accent-light: #EEF4FC;
+  --color-accent-border: #C8DBFA;
+
+  /* Canvas & Workspace */
+  --color-main-bg: #F5F7FB;
+  --color-card-bg: #FFFFFF;
+
+  /* Neutral Typography & Borders */
+  --color-text-primary: #172033;
+  --color-text-secondary: #64748B;
+  --color-text-muted: #94A3B8;
+  --color-border-subtle: #E2E8F0;
+  --color-border-strong: #CBD5E1;
+
+  /* Strict Semantic Colors */
+  --color-success: #15966A;
+  --color-success-light: #ECFDF5;
+  --color-success-border: #A7F3D0;
+  --color-success-text: #065F46;
+
+  --color-warning: #D97706;
+  --color-warning-light: #FFFBEB;
+  --color-warning-border: #FDE68A;
+  --color-warning-text: #92400E;
+
+  --color-danger: #DC2626;
+  --color-danger-light: #FEF2F2;
+  --color-danger-border: #FECACA;
+  --color-danger-text: #991B1B;
+
+  /* Backward-compatible mappings so any legacy class smoothly maps to the new enterprise palette */
+  --color-walnut: #243B6B;
+  --color-walnut-dark: #1A2C52;
+  --color-walnut-deep: #121F3A;
+  --color-walnut-light: #EEF4FC;
+  --color-walnut-border: #E2E8F0;
+
+  --color-sage: #15966A;
+  --color-sage-dark: #065F46;
+  --color-sage-deep: #064E3B;
+  --color-sage-light: #ECFDF5;
+  --color-sage-border: #A7F3D0;
+
+  --color-amber-glow: #D97706;
+  --color-amber-dark: #92400E;
+  --color-amber-light: #FFFBEB;
+  --color-amber-border: #FDE68A;
+
+  --color-linen-50: #FFFFFF;
+  --color-linen-100: #F5F7FB;
+  --color-linen-200: #EEF2F6;
+  --color-linen-300: #E2E8F0;
+  --color-linen-400: #CBD5E1;
+  --color-linen-700: #475569;
+  --color-linen-900: #172033;
+
+  --color-vault-teal: #243B6B;
+  --color-vault-cyan: #4776D0;
+  --color-vault-aqua: #EEF4FC;
+  --color-vault-icy: #F5F7FB;
+}
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: #172033;
+  background-color: #F5F7FB;
+}
+
+/* Custom subtle scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
